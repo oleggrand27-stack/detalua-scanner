@@ -125,7 +125,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 15.10-B</div>
+  <div class="ver">Сканер DetalUA · версія 15.10-C</div>
 </div>
 
 <script>
@@ -413,7 +413,7 @@
     if (!phone) { show('Перевірте телефон клієнта (наприклад 0681234567).', 'err'); return; }
     if (ttn.length < 8) { show('Введіть або зіскануйте номер накладної.', 'err'); return; }
     var btn = this; btn.disabled = true; show('Додаю…', 'info');
-    api({ action: 'add', phone: phone, ttn: ttn, carrier: carrier }).then(function (res) {
+    addWithConfirm(phone, ttn, carrier).then(function (res) {
       btn.disabled = false;
       show('✅ Додано: ' + ttn + ' → ' + phone + '\n' + (res || ''), 'ok');
       var li = document.createElement('li');
@@ -429,6 +429,25 @@
     });
   });
 
+  // Додає накладну. Якщо відповідь не дійшла (повільний зв'язок / довга обробка) —
+  // перепитує таблицю, чи накладна вже там, замість того щоб показувати помилку.
+  async function addWithConfirm(phone, ttn, carrier) {
+    try {
+      return await api({ action: 'add', phone: phone, ttn: ttn, carrier: carrier });
+    } catch (e) {
+      if (!e.network) throw e;                       // помилка від таблиці (дубль, телефон…) — показуємо як є
+      for (var i = 0; i < 4; i++) {
+        show('Відповідь затримується, перевіряю таблицю… (' + (i + 1) + '/4)', 'info');
+        await new Promise(function (r) { setTimeout(r, 4000); });
+        try {
+          var c = await apiRaw({ action: 'check', ttn: ttn });
+          if (c.found) return c.message;
+        } catch (e2) { /* пробуємо ще */ }
+      }
+      throw new Error(e.message);
+    }
+  }
+
   // ---------- Зв'язок з Apps Script (таблицею) ----------
   // Адреса і ключ зберігаються лише на цьому телефоні. Можна також відкрити сторінку
   // з посиланням виду …/#u=<адреса>&k=<ключ> — тоді налаштування підхопляться самі.
@@ -439,7 +458,9 @@
     return { url: h.get('u') || store('detal_url'), key: h.get('k') || store('detal_key') };
   }
 
-  async function api(body) {
+  async function api(body) { return (await apiRaw(body)).message; }
+
+  async function apiRaw(body) {
     var cfg = getCfg();
     if (!cfg.url || !cfg.key) { openSetup(); throw new Error('Спочатку заповніть налаштування (⚙).'); }
     body.key = cfg.key;
@@ -447,13 +468,13 @@
     try {
       resp = await fetch(cfg.url, { method: 'POST', body: JSON.stringify(body) });  // text/plain — без preflight
     } catch (e) {
-      throw new Error(await diagnose(cfg.url, e));
+      var ne = new Error(await diagnose(cfg.url, e)); ne.network = true; throw ne;
     }
     var data;
     try { data = await resp.json(); }
     catch (e) { throw new Error('Apps Script відповів не так, як очікувалось. Перевірте, що розгортання має доступ «Будь-хто» і адреса закінчується на /exec.'); }
     if (!data.ok) throw new Error(data.error || 'Помилка');
-    return data.message;
+    return data;
   }
 
   // Якщо запит не пройшов — з'ясовуємо, чому, і пояснюємо простими словами
