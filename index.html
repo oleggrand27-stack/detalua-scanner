@@ -125,7 +125,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 15.10-C</div>
+  <div class="ver">Сканер DetalUA · версія 15.10-D</div>
 </div>
 
 <script>
@@ -460,39 +460,42 @@
 
   async function api(body) { return (await apiRaw(body)).message; }
 
+  // Запит до Apps Script через JSONP (<script>): Safari не блокує його між сайтами, на відміну від fetch.
+  var cbN = 0;
+  function jsonp(url, params, timeoutMs) {
+    return new Promise(function (resolve, reject) {
+      var name = 'detalCb' + Date.now() + '_' + (cbN++), s = document.createElement('script'), done = false;
+      var q = Object.keys(params).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
+      function finish() { done = true; clearTimeout(t); try { delete window[name]; } catch (e) { window[name] = undefined; } s.remove(); }
+      window[name] = function (data) { if (done) return; finish(); resolve(data); };
+      s.onerror = function () { if (done) return; finish(); var e = new Error('load'); e.network = true; reject(e); };
+      // скрипт завантажився, але відповідь не та (напр. сторінка помилки Google) — не чекаємо 30 с
+      s.onload = function () { setTimeout(function () { if (done) return; finish(); var e = new Error('badresp'); e.network = true; reject(e); }, 300); };
+      var t = setTimeout(function () { if (done) return; finish(); var e = new Error('timeout'); e.network = true; reject(e); }, timeoutMs || 30000);
+      s.src = url + (url.indexOf('?') > -1 ? '&' : '?') + q + '&callback=' + name + '&_=' + Date.now();
+      document.head.appendChild(s);
+    });
+  }
+
   async function apiRaw(body) {
     var cfg = getCfg();
     if (!cfg.url || !cfg.key) { openSetup(); throw new Error('Спочатку заповніть налаштування (⚙).'); }
     body.key = cfg.key;
-    var resp;
-    try {
-      resp = await fetch(cfg.url, { method: 'POST', body: JSON.stringify(body) });  // text/plain — без preflight
-    } catch (e) {
-      var ne = new Error(await diagnose(cfg.url, e)); ne.network = true; throw ne;
-    }
+    if (!navigator.onLine) { var off = new Error('Телефон зараз без інтернету.'); off.network = true; throw off; }
+    if (!/\/exec(\?|$)/.test(cfg.url)) throw new Error('Адреса Apps Script має закінчуватися на /exec. Скопіюйте її ще раз: Розгорнути → Керувати розгортаннями → URL веб-застосунку.');
     var data;
-    try { data = await resp.json(); }
-    catch (e) { throw new Error('Apps Script відповів не так, як очікувалось. Перевірте, що розгортання має доступ «Будь-хто» і адреса закінчується на /exec.'); }
-    if (!data.ok) throw new Error(data.error || 'Помилка');
-    return data;
-  }
-
-  // Якщо запит не пройшов — з'ясовуємо, чому, і пояснюємо простими словами
-  async function diagnose(url, err) {
-    if (!navigator.onLine) return 'Телефон зараз без інтернету.';
-    if (!/\/exec(\?|$)/.test(url)) return 'Адреса Apps Script має закінчуватися на /exec. Скопіюйте її ще раз: Розгорнути → Керувати розгортаннями → URL веб-застосунку.';
     try {
-      var r = await fetch(url, { method: 'GET' });
-      var t = await r.text();
-      if (/приймач накладних/.test(t)) {
-        return 'Адреса правильна, але таблиця не прийняла накладну. Можливо, Apps Script ще обробляв попередню — спробуйте ще раз через хвилину. Якщо повториться — перевірте аркуш «Ручні»: накладна могла додатися. (' + (err && err.message || err) + ')';
-      }
-      return 'Адреса відповідає, але це не приймач накладних. Перевірте, що розгортання зроблено в проєкті таблиці розсилки з новим ScannerApp.';
-    } catch (e2) {
-      return 'Apps Script не пускає сторінку. Найчастіше причина — у розгортанні доступ не «Будь-хто» ' +
-             '(а «Лише я» або «Будь-хто з обліковим записом Google»), або вставлено URL старого розгортання. ' +
-             'Зробіть: Розгорнути → Нове розгортання → Веб-застосунок, Виконувати як: Я, Доступ: Будь-хто → вставте новий URL тут.';
+      data = await jsonp(cfg.url, body, 30000);
+    } catch (e) {
+      var ne = new Error(e.message === 'timeout'
+        ? 'Таблиця не відповіла за 30 секунд. Перевірте аркуш «Ручні» — накладна могла додатися.'
+        : e.message === 'badresp'
+        ? 'Apps Script відповів, але не так, як треба. Найімовірніше, після вставки нового ScannerApp не оновлено розгортання: Розгорнути → Керувати розгортаннями → ✏️ → Версія: «Нова версія» → Розгорнути.'
+        : 'Не вдалося зв\'язатися з Apps Script. Перевірте: 1) у Apps Script після вставки нового ScannerApp зроблено «Керувати розгортаннями → ✏️ → Нова версія»; 2) доступ розгортання — «Будь-хто»; 3) URL тут той самий, що відкривається в Safari.');
+      ne.network = true; throw ne;
     }
+    if (!data || !data.ok) throw new Error((data && data.error) || 'Помилка');
+    return data;
   }
 
   function openSetup() {
