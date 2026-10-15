@@ -72,6 +72,7 @@
       <input id="cfgKey" autocomplete="off" placeholder="20 символів з журналу Apps Script" style="font-size:15px">
     </div>
     <button type="button" class="btn send" id="cfgSave">Зберегти і перевірити зв'язок</button>
+    <div class="msg" id="setupMsg"></div>
   </div>
 
   <div id="mainUi">
@@ -129,7 +130,12 @@
   var carrier = 'Укрпошта';
   var $ = function (id) { return document.getElementById(id); };
 
-  function show(text, kind) { var m = $('msg'); m.className = 'msg ' + kind; m.textContent = text; }
+  function show(text, kind) {
+    var inSetup = $('setupCard').style.display === 'block';
+    var m = $(inSetup ? 'setupMsg' : 'msg');
+    m.className = 'msg ' + kind; m.textContent = text;
+    if (inSetup) m.scrollIntoView({ block: 'nearest' });
+  }
 
   // Перевізник
   $('carriers').addEventListener('click', function (e) {
@@ -439,13 +445,31 @@
     try {
       resp = await fetch(cfg.url, { method: 'POST', body: JSON.stringify(body) });  // text/plain — без preflight
     } catch (e) {
-      throw new Error('Немає зв\'язку з таблицею. Перевірте інтернет і адресу Apps Script (⚙).');
+      throw new Error(await diagnose(cfg.url, e));
     }
     var data;
     try { data = await resp.json(); }
     catch (e) { throw new Error('Apps Script відповів не так, як очікувалось. Перевірте, що розгортання має доступ «Будь-хто» і адреса закінчується на /exec.'); }
     if (!data.ok) throw new Error(data.error || 'Помилка');
     return data.message;
+  }
+
+  // Якщо запит не пройшов — з'ясовуємо, чому, і пояснюємо простими словами
+  async function diagnose(url, err) {
+    if (!navigator.onLine) return 'Телефон зараз без інтернету.';
+    if (!/\/exec(\?|$)/.test(url)) return 'Адреса Apps Script має закінчуватися на /exec. Скопіюйте її ще раз: Розгорнути → Керувати розгортаннями → URL веб-застосунку.';
+    try {
+      var r = await fetch(url, { method: 'GET' });
+      var t = await r.text();
+      if (/приймач накладних/.test(t)) {
+        return 'Адреса правильна, але таблиця не прийняла накладну. Можливо, Apps Script ще обробляв попередню — спробуйте ще раз через хвилину. Якщо повториться — перевірте аркуш «Ручні»: накладна могла додатися. (' + (err && err.message || err) + ')';
+      }
+      return 'Адреса відповідає, але це не приймач накладних. Перевірте, що розгортання зроблено в проєкті таблиці розсилки з новим ScannerApp.';
+    } catch (e2) {
+      return 'Apps Script не пускає сторінку. Найчастіше причина — у розгортанні доступ не «Будь-хто» ' +
+             '(а «Лише я» або «Будь-хто з обліковим записом Google»), або вставлено URL старого розгортання. ' +
+             'Зробіть: Розгорнути → Нове розгортання → Веб-застосунок, Виконувати як: Я, Доступ: Будь-хто → вставте новий URL тут.';
+    }
   }
 
   function openSetup() {
@@ -459,7 +483,7 @@
     if ($('setupCard').style.display === 'block' && getCfg().url) closeSetup(); else openSetup();
   });
   $('cfgSave').addEventListener('click', function () {
-    var url = $('cfgUrl').value.trim(), key = $('cfgKey').value.trim();
+    var url = $('cfgUrl').value.replace(/\s+/g, ''), key = $('cfgKey').value.replace(/\s+/g, '');
     if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { show('Адреса має починатися з https://script.google.com/…', 'err'); return; }
     if (key.length < 10) { show('Вставте ключ сканера повністю.', 'err'); return; }
     store('detal_url', url); store('detal_key', key);
