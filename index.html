@@ -125,7 +125,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 15.10-D</div>
+  <div class="ver">Сканер DetalUA · версія 15.10-E</div>
 </div>
 
 <script>
@@ -429,22 +429,24 @@
     });
   });
 
-  // Додає накладну. Якщо відповідь не дійшла (повільний зв'язок / довга обробка) —
-  // перепитує таблицю, чи накладна вже там, замість того щоб показувати помилку.
+  // Якщо фоновий запит заблоковано (так буває в Safari на iPhone) — відкриваємо сторінку Google напряму:
+  // звичайний перехід Safari не блокує. Google покаже результат, звідти — назад до сканера.
+  function goViaPage(body) {
+    var cfg = getCfg(), q = Object.assign({}, body, { key: cfg.key, ret: location.origin + location.pathname });
+    var qs = Object.keys(q).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(q[k]); }).join('&');
+    show('Відкриваю підтвердження Google…', 'info');
+    location.href = cfg.url + (cfg.url.indexOf('?') > -1 ? '&' : '?') + qs;
+  }
+
+  // Додає накладну: спершу тихим запитом, а якщо Safari його блокує — через сторінку Google.
   async function addWithConfirm(phone, ttn, carrier) {
     try {
       return await api({ action: 'add', phone: phone, ttn: ttn, carrier: carrier });
     } catch (e) {
       if (!e.network) throw e;                       // помилка від таблиці (дубль, телефон…) — показуємо як є
-      for (var i = 0; i < 4; i++) {
-        show('Відповідь затримується, перевіряю таблицю… (' + (i + 1) + '/4)', 'info');
-        await new Promise(function (r) { setTimeout(r, 4000); });
-        try {
-          var c = await apiRaw({ action: 'check', ttn: ttn });
-          if (c.found) return c.message;
-        } catch (e2) { /* пробуємо ще */ }
-      }
-      throw new Error(e.message);
+      $('phone').value = ''; $('ttn').value = '';
+      goViaPage({ action: 'add', phone: phone, ttn: ttn, carrier: carrier });
+      return new Promise(function () {});            // сторінка зараз перейде на Google
     }
   }
 
@@ -485,7 +487,7 @@
     if (!/\/exec(\?|$)/.test(cfg.url)) throw new Error('Адреса Apps Script має закінчуватися на /exec. Скопіюйте її ще раз: Розгорнути → Керувати розгортаннями → URL веб-застосунку.');
     var data;
     try {
-      data = await jsonp(cfg.url, body, 30000);
+      data = await jsonp(cfg.url, body, 12000);
     } catch (e) {
       var ne = new Error(e.message === 'timeout'
         ? 'Таблиця не відповіла за 30 секунд. Перевірте аркуш «Ручні» — накладна могла додатися.'
@@ -516,7 +518,11 @@
     if (location.hash) history.replaceState(null, '', location.pathname);
     var btn = this; btn.disabled = true; show('Перевіряю зв\'язок…', 'info');
     api({ action: 'ping' }).then(function (m) { btn.disabled = false; closeSetup(); show(m, 'ok'); })
-      .catch(function (e) { btn.disabled = false; show('❌ ' + e.message, 'err'); });
+      .catch(function (e) {
+        btn.disabled = false;
+        if (e.network) { closeSetup(); goViaPage({ action: 'ping' }); return; }
+        show('❌ ' + e.message, 'err');
+      });
   });
 
   if (!getCfg().url || !getCfg().key) openSetup();
