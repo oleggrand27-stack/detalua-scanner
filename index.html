@@ -26,7 +26,7 @@
   input:focus { outline:none; border-color:var(--accent); }
   .field { margin-bottom:16px; }
   .field:last-child { margin-bottom:0; }
-  .seg { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .seg { display:grid; grid-template-columns:repeat(2,1fr); gap:6px; }
   .seg button { font-size:15px; padding:11px 4px; border-radius:10px; border:1.5px solid var(--line);
                 background:#fff; color:var(--text); }
   .seg button.on { border-color:var(--accent); background:#eaf1ff; color:var(--accent); font-weight:600; }
@@ -82,9 +82,10 @@
     <div class="field">
       <label>Перевізник</label>
       <div class="seg" id="carriers">
-        <button type="button" data-v="Укрпошта" class="on">Укрпошта</button>
+        <button type="button" data-v="Нова Пошта" class="on">Нова Пошта</button>
+        <button type="button" data-v="Укрпошта">Укрпошта</button>
         <button type="button" data-v="Делівері">Делівері</button>
-        <button type="button" data-v="Нова Пошта">Нова Пошта</button>
+        <button type="button" data-v="Розетка">Розетка</button>
       </div>
     </div>
 
@@ -125,11 +126,11 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 15.10-E</div>
+  <div class="ver">Сканер DetalUA · версія 20.10-A</div>
 </div>
 
 <script>
-  var carrier = 'Укрпошта';
+  var carrier = 'Нова Пошта';
   var $ = function (id) { return document.getElementById(id); };
 
   function show(text, kind) {
