@@ -26,6 +26,16 @@
   input:focus { outline:none; border-color:var(--accent); }
   .field { margin-bottom:16px; }
   .field:last-child { margin-bottom:0; }
+  .row2 { display:grid; grid-template-columns:1.6fr 1fr; gap:10px; }
+  .row2 .field { margin-bottom:0; }
+  .sides { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+  .sides button { font-size:15px; padding:10px 2px; border-radius:10px; border:1.5px solid var(--line); background:#fff; color:var(--text); }
+  .sides button[data-v="Л"], .sides button[data-v="П"] { grid-column:span 1; }
+  .sides button.on { border-color:var(--accent); background:#eaf1ff; color:var(--accent); font-weight:600; }
+  .row2b { display:grid; grid-template-columns:1.25fr 1fr; gap:10px; }
+  .row2b .field { margin-bottom:0; }
+  .qty { display:grid; grid-template-columns:46px 1fr 46px; gap:6px; }
+  .qty .tool { font-size:22px; padding:0; }
   .seg { display:grid; grid-template-columns:repeat(2,1fr); gap:6px; }
   .seg button { font-size:15px; padding:11px 4px; border-radius:10px; border:1.5px solid var(--line);
                 background:#fff; color:var(--text); }
@@ -60,7 +70,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><h1>📦 Нова накладна</h1><button type="button" class="gear" id="gearBtn" title="Налаштування">⚙</button></div>
+  <div class="top"><h1>📦 Нова накладна</h1><div><button type="button" class="gear" id="statsBtn" title="Продажі">📊</button><button type="button" class="gear" id="listBtn" title="Відправлення">📋</button><button type="button" class="gear" id="gearBtn" title="Налаштування">⚙</button></div></div>
 
   <div class="card" id="setupCard" style="display:none">
     <h2>Налаштування (один раз)</h2>
@@ -117,6 +127,51 @@
     </div>
   </div>
 
+  <div class="card">
+    <div class="field">
+      <label for="itemName">Назва товару</label>
+      <input id="itemName" autocomplete="off" autocapitalize="sentences" placeholder="Напр. Фара передня ліва Logan" style="font-size:17px;letter-spacing:0">
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label for="partCode">Код запчастини</label>
+        <input id="partCode" autocomplete="off" autocapitalize="characters" placeholder="Напр. 8200526523" style="font-size:17px">
+      </div>
+      <div class="field">
+        <label for="carCode">Код машини</label>
+        <input id="carCode" inputmode="numeric" autocomplete="off" placeholder="401" style="font-size:17px">
+      </div>
+    </div>
+    <div class="field" style="margin-top:14px">
+      <label>Сторона</label>
+      <div class="sides" id="sides">
+        <button type="button" data-v="" class="on">—</button>
+        <button type="button" data-v="ПЛ">ПЛ</button>
+        <button type="button" data-v="ПП">ПП</button>
+        <button type="button" data-v="ЗЛ">ЗЛ</button>
+        <button type="button" data-v="ЗП">ЗП</button>
+        <button type="button" data-v="Л">Ліва</button>
+        <button type="button" data-v="П">Права</button>
+      </div>
+      <div class="hint" id="sideHint">Без сторони</div>
+    </div>
+    <div class="row2b">
+      <div class="field">
+        <label>Кількість</label>
+        <div class="qty">
+          <button type="button" class="tool" id="qtyMinus">−</button>
+          <input id="qty" inputmode="numeric" value="1" style="font-size:20px;text-align:center">
+          <button type="button" class="tool" id="qtyPlus">+</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="price">Ціна за 1 шт, грн</label>
+        <input id="price" inputmode="decimal" autocomplete="off" placeholder="0" style="font-size:20px">
+      </div>
+    </div>
+    <div class="hint" id="sumHint"></div>
+  </div>
+
   <button type="button" class="btn send" id="sendBtn">Додати і надіслати SMS</button>
   <div class="msg" id="msg"></div>
 
@@ -126,7 +181,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 20.10-A</div>
+  <div class="ver">Сканер DetalUA · версія 23.10-D</div>
 </div>
 
 <script>
@@ -411,19 +466,24 @@
 
   $('sendBtn').addEventListener('click', function () {
     var phone = normPhone($('phone').value), ttn = cleanTtn($('ttn').value);
+    var qty = parseInt($('qty').value, 10);
+    var price = parsePrice($('price').value);
+    if (price === null) { show('Перевірте ціну: лише число, наприклад 1500 або 1500.50.', 'err'); return; }
+    var item = { name: $('itemName').value.trim(), part: $('partCode').value.trim().toUpperCase(), car: $('carCode').value.trim(), side: sideText(), qty: qty, price: price };
+    if (!(qty >= 1 && qty <= 999)) { show('Кількість має бути від 1 до 999.', 'err'); return; }
     if (!phone) { show('Перевірте телефон клієнта (наприклад 0681234567).', 'err'); return; }
     if (ttn.length < 8) { show('Введіть або зіскануйте номер накладної.', 'err'); return; }
     var btn = this; btn.disabled = true; show('Додаю…', 'info');
-    addWithConfirm(phone, ttn, carrier).then(function (res) {
+    addWithConfirm(phone, ttn, carrier, item).then(function (res) {
       btn.disabled = false;
       show('✅ Додано: ' + ttn + ' → ' + phone + '\n' + (res || ''), 'ok');
       var li = document.createElement('li');
       li.innerHTML = '<b></b><small></small>';
-      li.firstChild.textContent = ttn + ' · ' + carrier;
-      li.lastChild.textContent = '+' + phone + ' — ' + (res || 'додано');
+      li.firstChild.textContent = ttn + ' · ' + carrier + (item.name ? ' · ' + item.name : '');
+      li.lastChild.textContent = '+' + phone + (item.part ? ' · код ' + item.part : '') + (item.car ? ' · авто ' + item.car : '') + (side ? ' · ' + side : '') + ' · ' + item.qty + ' шт' + (item.price !== '' ? ' · ' + fmtMoney(item.price * item.qty) + ' грн' : '') + ' — ' + (res || 'додано');
       $('history').insertBefore(li, $('history').firstChild);
       $('historyCard').style.display = 'block';
-      $('phone').value = ''; $('ttn').value = '';
+      clearForm();
     }).catch(function (err) {
       btn.disabled = false;
       show('❌ ' + (err && err.message ? err.message : err), 'err');
@@ -440,13 +500,41 @@
   }
 
   // Додає накладну: спершу тихим запитом, а якщо Safari його блокує — через сторінку Google.
-  async function addWithConfirm(phone, ttn, carrier) {
+  var SIDE_NAMES = { '': 'Без сторони', 'ПЛ': 'передня ліва', 'ПП': 'передня права', 'ЗЛ': 'задня ліва', 'ЗП': 'задня права', 'Л': 'ліва', 'П': 'права' };
+  var side = '';
+  function setSide(v) {
+    side = v;
+    [].forEach.call($('sides').children, function (b) { b.classList.toggle('on', b.dataset.v === v); });
+    $('sideHint').textContent = v ? v + ' — ' + SIDE_NAMES[v] : 'Без сторони';
+  }
+  $('sides').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) setSide(b.dataset.v); });
+  function sideText() { return side ? side + ' (' + SIDE_NAMES[side] + ')' : ''; }
+
+  function clearForm() { ['phone', 'ttn', 'itemName', 'partCode', 'carCode', 'price'].forEach(function (id) { $(id).value = ''; }); $('qty').value = '1'; setSide(''); updSum(); }
+  // Ціна: порожньо = не вказано; інакше число ≥ 0 (кома або крапка)
+  function parsePrice(v) {
+    v = String(v || '').replace(/\s/g, '').replace(',', '.');
+    if (!v) return '';
+    if (!/^\d+(\.\d{1,2})?$/.test(v)) return null;
+    return Number(v);
+  }
+  function fmtMoney(n) { return (Math.round(n * 100) / 100).toLocaleString('uk-UA'); }
+  function updSum() {
+    var p = parsePrice($('price').value), q = parseInt($('qty').value, 10) || 1;
+    $('sumHint').textContent = (p !== '' && p !== null && q > 1) ? 'Сума: ' + fmtMoney(p * q) + ' грн' : '';
+  }
+  ['price', 'qty'].forEach(function (id) { $(id).addEventListener('input', updSum); });
+  $('qtyMinus').addEventListener('click', function () { $('qty').value = Math.max(1, (parseInt($('qty').value, 10) || 1) - 1); updSum(); });
+  $('qtyPlus').addEventListener('click', function () { $('qty').value = Math.min(999, (parseInt($('qty').value, 10) || 0) + 1); updSum(); });
+
+  async function addWithConfirm(phone, ttn, carrier, item) {
+    var body = { action: 'add', phone: phone, ttn: ttn, carrier: carrier, name: item.name, part: item.part, car: item.car, side: item.side, qty: item.qty, price: item.price };
     try {
-      return await api({ action: 'add', phone: phone, ttn: ttn, carrier: carrier });
+      return await api(Object.assign({}, body));
     } catch (e) {
       if (!e.network) throw e;                       // помилка від таблиці (дубль, телефон…) — показуємо як є
-      $('phone').value = ''; $('ttn').value = '';
-      goViaPage({ action: 'add', phone: phone, ttn: ttn, carrier: carrier });
+      clearForm();
+      goViaPage(body);
       return new Promise(function () {});            // сторінка зараз перейде на Google
     }
   }
@@ -507,6 +595,16 @@
     $('setupCard').style.display = 'block'; $('mainUi').style.display = 'none';
   }
   function closeSetup() { $('setupCard').style.display = 'none'; $('mainUi').style.display = ''; }
+
+  // Список відправлень зі статусами — відкривається сторінкою Google (Safari такий перехід не блокує)
+  function openGooglePage(action) {
+    var cfg = getCfg();
+    if (!cfg.url || !cfg.key) { openSetup(); show('Спочатку заповніть налаштування.', 'err'); return; }
+    location.href = cfg.url + '?action=' + action + '&f=active&key=' + encodeURIComponent(cfg.key) +
+      '&u=' + encodeURIComponent(cfg.url) + '&ret=' + encodeURIComponent(location.origin + location.pathname);
+  }
+  $('listBtn').addEventListener('click', function () { openGooglePage('list'); });
+  $('statsBtn').addEventListener('click', function () { openGooglePage('stats'); });
 
   $('gearBtn').addEventListener('click', function () {
     if ($('setupCard').style.display === 'block' && getCfg().url) closeSetup(); else openSetup();
