@@ -65,6 +65,9 @@
   #zoomBox { display:flex; gap:6px; }
   .tool { font-size:15px; padding:9px 14px; border-radius:10px; border:1.5px solid var(--line); background:#fff; color:var(--text); }
   .tool.on { border-color:var(--accent); color:var(--accent); background:#eaf1ff; font-weight:600; }
+  .moreb { background:#fff; color:var(--accent); border:1.5px solid var(--accent); margin-top:10px; display:none; }
+  .moreBar { display:none; background:#eaf1ff; color:#1f4fbf; border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:15px; line-height:1.4; }
+  .moreBar button { background:none; border:none; color:var(--accent); font-size:15px; padding:6px 0 0; text-decoration:underline; }
   .link { background:none; border:none; color:var(--accent); font-size:15px; padding:10px 0 0; width:100%; text-align:center; }
 </style>
 </head>
@@ -88,6 +91,9 @@
 
   <div id="mainUi">
 
+  <div class="moreBar" id="moreBar"><b>➕ Ще товар до накладної <span id="moreTtn"></span></b><br>
+    SMS клієнту вдруге не піде. Впишіть товар і натисніть «Додати товар».<br>
+    <button type="button" id="moreCancel">Скасувати — нова накладна</button></div>
   <div class="card">
     <div class="field">
       <label>Перевізник</label>
@@ -174,6 +180,7 @@
 
   <button type="button" class="btn send" id="sendBtn">Додати і надіслати SMS</button>
   <div class="msg" id="msg"></div>
+  <button type="button" class="btn moreb" id="moreBtn">➕ Ще товар до цієї накладної</button>
 
   <div class="card" id="historyCard" style="display:none;margin-top:14px">
     <label>Додано зараз</label>
@@ -181,7 +188,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 23.10-D</div>
+  <div class="ver">Сканер DetalUA · версія 27.10-E</div>
 </div>
 
 <script>
@@ -473,10 +480,16 @@
     if (!(qty >= 1 && qty <= 999)) { show('Кількість має бути від 1 до 999.', 'err'); return; }
     if (!phone) { show('Перевірте телефон клієнта (наприклад 0681234567).', 'err'); return; }
     if (ttn.length < 8) { show('Введіть або зіскануйте номер накладної.', 'err'); return; }
-    var btn = this; btn.disabled = true; show('Додаю…', 'info');
-    addWithConfirm(phone, ttn, carrier, item).then(function (res) {
+    if (moreTtn && cleanTtn(moreTtn) !== ttn) setMore(null);           // номер змінили — це вже нова накладна
+    if (moreTtn && !item.name && !item.part) { show('Впишіть назву товару або код запчастини.', 'err'); return; }
+    var btn = this; btn.disabled = true; show('Додаю…', 'info'); $('moreBtn').style.display = 'none';
+    var wasMore = !!moreTtn;
+    addWithConfirm(phone, ttn, carrier, item, wasMore).then(function (res) {
       btn.disabled = false;
-      show('✅ Додано: ' + ttn + ' → ' + phone + '\n' + (res || ''), 'ok');
+      show((wasMore ? '✅ Товар додано до ' : '✅ Додано: ') + ttn + ' → ' + phone + '\n' + (res || ''), 'ok');
+      lastSent = { ttn: ttn, phone: phone, carrier: carrier };
+      $('moreBtn').style.display = 'block';
+      setMore(null);
       var li = document.createElement('li');
       li.innerHTML = '<b></b><small></small>';
       li.firstChild.textContent = ttn + ' · ' + carrier + (item.name ? ' · ' + item.name : '');
@@ -486,9 +499,47 @@
       clearForm();
     }).catch(function (err) {
       btn.disabled = false;
-      show('❌ ' + (err && err.message ? err.message : err), 'err');
+      var m = err && err.message ? err.message : String(err);
+      show('❌ ' + m, 'err');
+      if (/вже є в таблиці/.test(m)) {                                // накладна вже є — пропонуємо дописати товар
+        lastSent = { ttn: ttn, phone: phone, carrier: carrier, keepItem: true };
+        $('moreBtn').style.display = 'block';
+      }
     });
   });
+
+  // ---------- Кілька товарів в одній накладній ----------
+  var moreTtn = null, lastSent = null;
+  function setMore(info) {
+    moreTtn = info ? info.ttn : null;
+    $('moreBar').style.display = info ? 'block' : 'none';
+    $('sendBtn').textContent = info ? 'Додати товар до накладної' : 'Додати і надіслати SMS';
+    if (!info) return;
+    $('moreTtn').textContent = info.ttn;
+    $('ttn').value = info.ttn;
+    if (info.phone) $('phone').value = String(info.phone).replace(/^380/, '0');
+    if (info.carrier) {
+      [].forEach.call($('carriers').children, function (x) { x.classList.toggle("on", x.dataset.v === info.carrier); });
+      carrier = info.carrier;
+    }
+    window.scrollTo(0, 0);
+  }
+  $('moreBtn').addEventListener('click', function () {
+    if (!lastSent) return;
+    if (!lastSent.keepItem) { ['itemName', 'partCode', 'carCode', 'price'].forEach(function (id) { $(id).value = ''; }); $('qty').value = '1'; setSide(''); updSum(); }
+    setMore(lastSent);
+    this.style.display = 'none';
+    $('msg').className = 'msg';
+    $('itemName').focus();
+  });
+  $('moreCancel').addEventListener('click', function () { setMore(null); clearForm(); });
+  (function () {                                                       // повернулись зі сторінки Google з «➕ Ще товар»
+    var q = new URLSearchParams(location.search);
+    if (!q.get('more')) return;
+    var info = { ttn: cleanTtn(q.get('more')), phone: q.get('ph') || '', carrier: q.get('c') || '' };
+    history.replaceState(null, '', location.pathname + location.hash);
+    if (info.ttn.length >= 8) setMore(info);
+  })();
 
   // Якщо фоновий запит заблоковано (так буває в Safari на iPhone) — відкриваємо сторінку Google напряму:
   // звичайний перехід Safari не блокує. Google покаже результат, звідти — назад до сканера.
@@ -527,8 +578,8 @@
   $('qtyMinus').addEventListener('click', function () { $('qty').value = Math.max(1, (parseInt($('qty').value, 10) || 1) - 1); updSum(); });
   $('qtyPlus').addEventListener('click', function () { $('qty').value = Math.min(999, (parseInt($('qty').value, 10) || 0) + 1); updSum(); });
 
-  async function addWithConfirm(phone, ttn, carrier, item) {
-    var body = { action: 'add', phone: phone, ttn: ttn, carrier: carrier, name: item.name, part: item.part, car: item.car, side: item.side, qty: item.qty, price: item.price };
+  async function addWithConfirm(phone, ttn, carrier, item, extra) {
+    var body = { action: extra ? 'additem' : 'add', phone: phone, ttn: ttn, carrier: carrier, name: item.name, part: item.part, car: item.car, side: item.side, qty: item.qty, price: item.price };
     try {
       return await api(Object.assign({}, body));
     } catch (e) {
