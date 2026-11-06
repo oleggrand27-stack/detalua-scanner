@@ -40,6 +40,7 @@
   .seg button { font-size:15px; padding:11px 4px; border-radius:10px; border:1.5px solid var(--line);
                 background:#fff; color:var(--text); }
   .seg button.wide { grid-column:span 2; }
+  .pay4 button { font-size:14px; }
   .seg button.on { border-color:var(--accent); background:#eaf1ff; color:var(--accent); font-weight:600; }
   .btn { width:100%; font-size:18px; font-weight:600; padding:15px; border-radius:14px; border:none; }
   .scan { background:#16161a; color:#fff; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:10px; }
@@ -182,6 +183,17 @@
       </div>
     </div>
     <div class="hint" id="sumHint"></div>
+    <div class="field" id="payField" style="margin-top:12px">
+      <label>Оплата</label>
+      <div class="seg pay4" id="payseg">
+        <button type="button" data-v="" class="on">— Не вказувати</button>
+        <button type="button" data-v="наложка">📮 Наложка</button>
+        <button type="button" data-v="передоплата">💵 Передоплата</button>
+        <button type="button" data-v="повна оплата">✅ Повна оплата</button>
+      </div>
+      <input id="prepay" inputmode="decimal" autocomplete="off" placeholder="Сума передоплати, грн" style="display:none;margin-top:8px">
+      <div class="hint" id="payHint"></div>
+    </div>
   </div>
 
   <button type="button" class="btn send" id="sendBtn">Додати і надіслати SMS</button>
@@ -195,7 +207,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 06.11-G</div>
+  <div class="ver">Сканер DetalUA · версія 06.11-H</div>
 </div>
 
 <script>
@@ -221,6 +233,7 @@
   function applyCarrierUI() {
     var pu = isPickup();
     $('ttnField').style.display = pu ? 'none' : '';
+    $('payField').style.display = pu ? 'none' : '';
     $('phoneLabel').textContent = pu ? 'Телефон клієнта (необов\'язково)' : 'Телефон клієнта';
     $('sendBtn').textContent = sendLabel();
   }
@@ -502,7 +515,13 @@
     var qty = parseInt($('qty').value, 10);
     var price = parsePrice($('price').value);
     if (price === null) { show('Перевірте ціну: лише число, наприклад 1500 або 1500.50.', 'err'); return; }
-    var item = { name: $('itemName').value.trim(), part: $('partCode').value.trim().toUpperCase(), car: $('carCode').value.trim(), side: sideText(), qty: qty, price: price };
+    var item = { name: $('itemName').value.trim(), part: $('partCode').value.trim().toUpperCase(), car: $('carCode').value.trim(), side: sideText(), qty: qty, price: price,
+      pay: isPickup() ? '' : pay, prepay: '' };
+    if (item.pay === 'передоплата') {
+      var pp = parsePrice($('prepay').value);
+      if (pp === null || pp === '') { show('Впишіть суму передоплати (або виберіть інший спосіб оплати).', 'err'); return; }
+      item.prepay = pp;
+    }
     if (!(qty >= 1 && qty <= 999)) { show('Кількість має бути від 1 до 999.', 'err'); return; }
     if (!pu && !phone) { show('Перевірте телефон клієнта (наприклад 0681234567).', 'err'); return; }
     if (!pu && ttn.length < 8) { show('Введіть або зіскануйте номер накладної.', 'err'); return; }
@@ -621,7 +640,20 @@
   $('sides').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) setSide(b.dataset.v); });
   function sideText() { return side ? side + ' (' + SIDE_NAMES[side] + ')' : ''; }
 
-  function clearForm() { ['phone', 'ttn', 'itemName', 'partCode', 'carCode', 'price'].forEach(function (id) { $(id).value = ''; }); $('qty').value = '1'; setSide(''); updSum(); }
+  function clearForm() { ['phone', 'ttn', 'itemName', 'partCode', 'carCode', 'price', 'prepay'].forEach(function (id) { $(id).value = ''; }); $('qty').value = '1'; setSide(''); setPay(''); updSum(); }
+  // ---------- Оплата ----------
+  var pay = '';
+  var PAY_HINTS = { '': 'Для Нової Пошти оплата підтягнеться з накладної сама.', 'наложка': 'Уся сума — на пошті (післяплата).',
+    'передоплата': 'Решта суми очікуватиме на пошті.', 'повна оплата': 'Клієнт уже оплатив усе — посилка одразу «Оплачено».' };
+  function setPay(v) {
+    pay = v;
+    [].forEach.call($('payseg').children, function (b) { b.classList.toggle('on', b.dataset.v === v); });
+    $('prepay').style.display = v === 'передоплата' ? 'block' : 'none';
+    $('payHint').textContent = PAY_HINTS[v] || '';
+    if (v === 'передоплата') $('prepay').focus();
+  }
+  $('payseg').addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) setPay(b.dataset.v); });
+  setPay('');
   // Ціна: порожньо = не вказано; інакше число ≥ 0 (кома або крапка)
   function parsePrice(v) {
     v = String(v || '').replace(/\s/g, '').replace(',', '.');
@@ -639,7 +671,8 @@
   $('qtyPlus').addEventListener('click', function () { $('qty').value = Math.min(999, (parseInt($('qty').value, 10) || 0) + 1); updSum(); });
 
   async function addWithConfirm(phone, ttn, carrier, item, extra) {
-    var body = { action: extra ? 'additem' : 'add', phone: phone, ttn: ttn, carrier: carrier, name: item.name, part: item.part, car: item.car, side: item.side, qty: item.qty, price: item.price };
+    var body = { action: extra ? 'additem' : 'add', phone: phone, ttn: ttn, carrier: carrier, name: item.name, part: item.part, car: item.car, side: item.side, qty: item.qty, price: item.price,
+      pay: item.pay || '', prepay: item.prepay === '' || item.prepay == null ? '' : item.prepay };
     try {
       return await api(Object.assign({}, body));
     } catch (e) {
