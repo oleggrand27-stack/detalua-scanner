@@ -39,11 +39,16 @@
   .seg { display:grid; grid-template-columns:repeat(2,1fr); gap:6px; }
   .seg button { font-size:15px; padding:11px 4px; border-radius:10px; border:1.5px solid var(--line);
                 background:#fff; color:var(--text); }
+  .seg button.wide { grid-column:span 2; }
   .seg button.on { border-color:var(--accent); background:#eaf1ff; color:var(--accent); font-weight:600; }
   .btn { width:100%; font-size:18px; font-weight:600; padding:15px; border-radius:14px; border:none; }
   .scan { background:#16161a; color:#fff; margin-top:10px; display:flex; align-items:center; justify-content:center; gap:10px; }
   .send { background:var(--accent); color:#fff; }
   .send:disabled { opacity:.5; }
+  .hrow { display:flex; justify-content:space-between; gap:8px; font-size:14px; margin-top:3px; }
+  .hrow span:last-child { white-space:nowrap; color:var(--muted, #6b6b76); }
+  .htot { font-size:14px; font-weight:600; margin-top:5px; }
+  .hday { font-size:14px; font-weight:600; margin-top:8px; color:var(--accent); }
   .msg { white-space:pre-line; border-radius:12px; padding:12px 14px; font-size:15px; margin-top:12px; display:none; line-height:1.4; }
   .msg.ok { display:block; background:var(--okbg); color:var(--ok); }
   .msg.err { display:block; background:var(--errbg); color:var(--err); }
@@ -102,15 +107,16 @@
         <button type="button" data-v="Укрпошта">Укрпошта</button>
         <button type="button" data-v="Делівері">Делівері</button>
         <button type="button" data-v="Розетка">Розетка</button>
+        <button type="button" data-v="Самовивіз" class="wide">🏬 Самовивіз (без накладної і SMS)</button>
       </div>
     </div>
 
     <div class="field">
-      <label for="phone">Телефон клієнта</label>
+      <label for="phone" id="phoneLabel">Телефон клієнта</label>
       <input id="phone" type="tel" inputmode="tel" autocomplete="off" placeholder="0681234567">
     </div>
 
-    <div class="field">
+    <div class="field" id="ttnField">
       <label for="ttn">Номер накладної (ТТН)</label>
       <input id="ttn" inputmode="numeric" autocomplete="off" placeholder="Скануйте або введіть">
       <button type="button" class="btn scan" id="liveBtn">📷 Сканувати камерою</button>
@@ -183,12 +189,13 @@
   <button type="button" class="btn moreb" id="moreBtn">➕ Ще товар до цієї накладної</button>
 
   <div class="card" id="historyCard" style="display:none;margin-top:14px">
-    <label>Додано зараз</label>
+    <label>Додано сьогодні</label>
     <ul id="history"></ul>
+    <div class="hday" id="historyDay"></div>
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 27.10-E</div>
+  <div class="ver">Сканер DetalUA · версія 06.11-G</div>
 </div>
 
 <script>
@@ -207,7 +214,20 @@
     var b = e.target.closest('button'); if (!b) return;
     [].forEach.call(this.children, function (x) { x.classList.remove('on'); });
     b.classList.add('on'); carrier = b.dataset.v;
+    applyCarrierUI();
   });
+  function isPickup() { return carrier === 'Самовивіз'; }
+  function sendLabel() { return moreTtn ? (isPickup() ? 'Додати товар до самовивозу' : 'Додати товар до накладної') : (isPickup() ? 'Записати продаж (без SMS)' : 'Додати і надіслати SMS'); }
+  function applyCarrierUI() {
+    var pu = isPickup();
+    $('ttnField').style.display = pu ? 'none' : '';
+    $('phoneLabel').textContent = pu ? 'Телефон клієнта (необов\'язково)' : 'Телефон клієнта';
+    $('sendBtn').textContent = sendLabel();
+  }
+  function pickupId() {
+    var d = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
+    return 'SV' + String(d.getFullYear()).slice(2) + p(d.getMonth() + 1) + p(d.getDate()) + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  }
 
   // ---------- Читання штрихкоду з фото ----------
   var scanner = null;
@@ -473,29 +493,31 @@
 
   $('sendBtn').addEventListener('click', function () {
     var phone = normPhone($('phone').value), ttn = cleanTtn($('ttn').value);
+    var pu = isPickup();
+    if (pu) {
+      if ($('phone').value.trim() && !phone) { show('Перевірте телефон (або залиште порожнім).', 'err'); return; }
+      phone = phone || '';
+      ttn = moreTtn ? cleanTtn(moreTtn) : pickupId();
+    }
     var qty = parseInt($('qty').value, 10);
     var price = parsePrice($('price').value);
     if (price === null) { show('Перевірте ціну: лише число, наприклад 1500 або 1500.50.', 'err'); return; }
     var item = { name: $('itemName').value.trim(), part: $('partCode').value.trim().toUpperCase(), car: $('carCode').value.trim(), side: sideText(), qty: qty, price: price };
     if (!(qty >= 1 && qty <= 999)) { show('Кількість має бути від 1 до 999.', 'err'); return; }
-    if (!phone) { show('Перевірте телефон клієнта (наприклад 0681234567).', 'err'); return; }
-    if (ttn.length < 8) { show('Введіть або зіскануйте номер накладної.', 'err'); return; }
+    if (!pu && !phone) { show('Перевірте телефон клієнта (наприклад 0681234567).', 'err'); return; }
+    if (!pu && ttn.length < 8) { show('Введіть або зіскануйте номер накладної.', 'err'); return; }
+    if (pu && !item.name && !item.part) { show('Впишіть назву товару або код запчастини.', 'err'); return; }
     if (moreTtn && cleanTtn(moreTtn) !== ttn) setMore(null);           // номер змінили — це вже нова накладна
     if (moreTtn && !item.name && !item.part) { show('Впишіть назву товару або код запчастини.', 'err'); return; }
     var btn = this; btn.disabled = true; show('Додаю…', 'info'); $('moreBtn').style.display = 'none';
     var wasMore = !!moreTtn;
     addWithConfirm(phone, ttn, carrier, item, wasMore).then(function (res) {
       btn.disabled = false;
-      show((wasMore ? '✅ Товар додано до ' : '✅ Додано: ') + ttn + ' → ' + phone + '\n' + (res || ''), 'ok');
+      show(pu ? '✅ ' + (res || 'Самовивіз записано') : (wasMore ? '✅ Товар додано до ' : '✅ Додано: ') + ttn + ' → ' + phone + '\n' + (res || ''), 'ok');
       lastSent = { ttn: ttn, phone: phone, carrier: carrier };
       $('moreBtn').style.display = 'block';
       setMore(null);
-      var li = document.createElement('li');
-      li.innerHTML = '<b></b><small></small>';
-      li.firstChild.textContent = ttn + ' · ' + carrier + (item.name ? ' · ' + item.name : '');
-      li.lastChild.textContent = '+' + phone + (item.part ? ' · код ' + item.part : '') + (item.car ? ' · авто ' + item.car : '') + (side ? ' · ' + side : '') + ' · ' + item.qty + ' шт' + (item.price !== '' ? ' · ' + fmtMoney(item.price * item.qty) + ' грн' : '') + ' — ' + (res || 'додано');
-      $('history').insertBefore(li, $('history').firstChild);
-      $('historyCard').style.display = 'block';
+      addHist(ttn, carrier, phone, item);
       clearForm();
     }).catch(function (err) {
       btn.disabled = false;
@@ -508,20 +530,58 @@
     });
   });
 
+  // ---------- Історія за сьогодні: по накладних, з підсумком ----------
+  function histLoad() {
+    try {
+      var h = JSON.parse(localStorage.getItem('detal_hist') || '{}');
+      return h.day === new Date().toDateString() ? h : { day: new Date().toDateString(), list: [] };
+    } catch (e) { return { day: new Date().toDateString(), list: [] }; }
+  }
+  var HIST = histLoad();
+  function addHist(ttn, carrier, phone, item) {
+    HIST.list.push({ ttn: ttn, c: carrier, ph: phone, n: item.name || item.part || '(без назви)', sd: item.side || '',
+      car: item.car || '', q: item.qty || 1, s: item.price !== '' && item.price != null ? item.price * (item.qty || 1) : 0 });
+    if (HIST.list.length > 100) HIST.list = HIST.list.slice(-100);
+    try { localStorage.setItem('detal_hist', JSON.stringify(HIST)); } catch (e) {}
+    renderHist();
+  }
+  function renderHist() {
+    var groups = [], by = {};
+    HIST.list.forEach(function (x) {
+      if (!by[x.ttn]) { by[x.ttn] = { ttn: x.ttn, c: x.c, ph: x.ph, it: [] }; groups.unshift(by[x.ttn]); }
+      by[x.ttn].it.push(x);
+    });
+    var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+    var day = 0;
+    $('history').innerHTML = groups.map(function (g) {
+      var tot = g.it.reduce(function (a, x) { return a + x.s; }, 0); day += tot;
+      var head = /^SV\d/.test(g.ttn) ? '🏬 Самовивіз' : esc(g.ttn) + ' · ' + esc(g.c);
+      return '<li><b>' + head + '</b><small>' + (g.ph ? '+' + esc(g.ph) : 'без телефону') + '</small>' +
+        g.it.map(function (x, i) {
+          return '<div class="hrow"><span>' + (i + 1) + '. ' + esc(x.n) + (x.sd ? ' · ' + esc(x.sd) : '') + (x.car ? ' · авто ' + esc(x.car) : '') +
+            (x.q > 1 ? ' ×' + x.q : '') + '</span><span>' + (x.s ? fmtMoney(x.s) + ' грн' : '—') + '</span></div>';
+        }).join('') +
+        '<div class="htot">' + g.it.length + ' ' + (g.it.length === 1 ? 'товар' : g.it.length < 5 ? 'товари' : 'товарів') + ' · Разом: ' + fmtMoney(tot) + ' грн</div></li>';
+    }).join('');
+    $('historyDay').textContent = groups.length ? 'За сьогодні: ' + groups.length + ' ' + (groups.length === 1 ? 'відправлення' : 'відправлень') + ' · ' + fmtMoney(day) + ' грн' : '';
+    $('historyCard').style.display = groups.length ? 'block' : 'none';
+  }
+  renderHist();
+
   // ---------- Кілька товарів в одній накладній ----------
   var moreTtn = null, lastSent = null;
   function setMore(info) {
     moreTtn = info ? info.ttn : null;
     $('moreBar').style.display = info ? 'block' : 'none';
-    $('sendBtn').textContent = info ? 'Додати товар до накладної' : 'Додати і надіслати SMS';
-    if (!info) return;
-    $('moreTtn').textContent = info.ttn;
+    if (!info) { applyCarrierUI(); return; }
+    $('moreTtn').textContent = /^SV\d/.test(info.ttn) ? '(самовивіз)' : info.ttn;
     $('ttn').value = info.ttn;
     if (info.phone) $('phone').value = String(info.phone).replace(/^380/, '0');
     if (info.carrier) {
       [].forEach.call($('carriers').children, function (x) { x.classList.toggle("on", x.dataset.v === info.carrier); });
       carrier = info.carrier;
     }
+    applyCarrierUI();
     window.scrollTo(0, 0);
   }
   $('moreBtn').addEventListener('click', function () {
@@ -538,7 +598,7 @@
     if (!q.get('more')) return;
     var info = { ttn: cleanTtn(q.get('more')), phone: q.get('ph') || '', carrier: q.get('c') || '' };
     history.replaceState(null, '', location.pathname + location.hash);
-    if (info.ttn.length >= 8) setMore(info);
+    if (info.ttn.length >= 8 || /^SV\d/.test(info.ttn)) setMore(info);
   })();
 
   // Якщо фоновий запит заблоковано (так буває в Safari на iPhone) — відкриваємо сторінку Google напряму:
@@ -584,6 +644,7 @@
       return await api(Object.assign({}, body));
     } catch (e) {
       if (!e.network) throw e;                       // помилка від таблиці (дубль, телефон…) — показуємо як є
+      addHist(ttn, carrier, phone, item);            // у підсумок одразу (сторінка зараз перейде на Google)
       clearForm();
       goViaPage(body);
       return new Promise(function () {});            // сторінка зараз перейде на Google
