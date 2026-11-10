@@ -207,7 +207,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 06.11-H</div>
+  <div class="ver">Сканер DetalUA · версія 10.11-J</div>
 </div>
 
 <script>
@@ -451,8 +451,16 @@
     stopLive();
     $('guide').classList.remove('hit');
     $('ttn').value = t;
+    prmCheck();
     show('Зчитано: ' + t + '. Перевірте номер і натисніть «Додати».', 'ok');
   }
+  // Накладна Розетки (PRM…) — одразу вибираємо «Розетка»
+  function prmCheck() {
+    if (!/^PRM/i.test($('ttn').value.trim()) || carrier === 'Розетка') return;
+    [].forEach.call($('carriers').children, function (x) { x.classList.toggle('on', x.dataset.v === 'Розетка'); });
+    carrier = 'Розетка'; applyCarrierUI();
+  }
+  $('ttn').addEventListener('input', prmCheck);
 
   // Зум і ліхтарик, якщо камера їх підтримує
   function setupCameraTools() {
@@ -487,7 +495,7 @@
     show('Розпізнаю штрихкод…', 'info');
     try {
       var t = await decodePhoto(file);
-      $('ttn').value = t;
+      $('ttn').value = t; prmCheck();
       show('Зчитано: ' + t + '. Перевірте номер і натисніть «Додати».', 'ok');
     } catch (e) {
       var m = /Бібліотека/.test(e.message) ? e.message
@@ -720,9 +728,14 @@
     if (!navigator.onLine) { var off = new Error('Телефон зараз без інтернету.'); off.network = true; throw off; }
     if (!/\/exec(\?|$)/.test(cfg.url)) throw new Error('Адреса Apps Script має закінчуватися на /exec. Скопіюйте її ще раз: Розгорнути → Керувати розгортаннями → URL веб-застосунку.');
     var data;
+    if (body.action !== 'ping' && store('detal_nav') === '1') {     // тихі запити тут блокуються — одразу через Google
+      var nv = new Error('nav'); nv.network = true; throw nv;
+    }
     try {
       data = await jsonp(cfg.url, body, 12000);
+      store('detal_nav', '0');
     } catch (e) {
+      if (e.message === 'load' || e.message === 'badresp') store('detal_nav', '1');
       var ne = new Error(e.message === 'timeout'
         ? 'Таблиця не відповіла за 30 секунд. Перевірте аркуш «Ручні» — накладна могла додатися.'
         : e.message === 'badresp'
