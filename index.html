@@ -207,7 +207,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 10.11-J</div>
+  <div class="ver">Сканер DetalUA · версія 13.11-K</div>
 </div>
 
 <script>
@@ -234,9 +234,10 @@
     var pu = isPickup();
     $('ttnField').style.display = pu ? 'none' : '';
     $('payField').style.display = pu ? 'none' : '';
-    $('phoneLabel').textContent = pu ? 'Телефон клієнта (необов\'язково)' : 'Телефон клієнта';
+    $('phoneLabel').textContent = pu ? 'Телефон клієнта (необов\'язково)' : carrier === 'Нова Пошта' ? 'Телефон клієнта (для Нової Пошти можна не вписувати)' : 'Телефон клієнта';
     $('sendBtn').textContent = sendLabel();
   }
+  setTimeout(applyCarrierUI, 0);
   function pickupId() {
     var d = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
     return 'SV' + String(d.getFullYear()).slice(2) + p(d.getMonth() + 1) + p(d.getDate()) + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
@@ -531,7 +532,9 @@
       item.prepay = pp;
     }
     if (!(qty >= 1 && qty <= 999)) { show('Кількість має бути від 1 до 999.', 'err'); return; }
-    if (!pu && !phone) { show('Перевірте телефон клієнта (наприклад 0681234567).', 'err'); return; }
+    var npNoPhone = !pu && carrier === 'Нова Пошта' && !$('phone').value.trim();       // телефон візьмемо з накладної НП
+    if (npNoPhone) phone = '';
+    if (!pu && !phone && !npNoPhone) { show('Перевірте телефон клієнта (наприклад 0681234567).', 'err'); return; }
     if (!pu && ttn.length < 8) { show('Введіть або зіскануйте номер накладної.', 'err'); return; }
     if (pu && !item.name && !item.part) { show('Впишіть назву товару або код запчастини.', 'err'); return; }
     if (moreTtn && cleanTtn(moreTtn) !== ttn) setMore(null);           // номер змінили — це вже нова накладна
