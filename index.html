@@ -74,12 +74,14 @@
   .moreb { background:#fff; color:var(--accent); border:1.5px solid var(--accent); margin-top:10px; display:none; }
   .moreBar { display:none; background:#eaf1ff; color:#1f4fbf; border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:15px; line-height:1.4; }
   .moreBar button { background:none; border:none; color:var(--accent); font-size:15px; padding:6px 0 0; text-decoration:underline; }
+  .preBar { background:#fff4e0; color:#8a5300; }
+  .preBar button { color:#8a5300; }
   .link { background:none; border:none; color:var(--accent); font-size:15px; padding:10px 0 0; width:100%; text-align:center; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><h1>📦 Нова накладна</h1><div><button type="button" class="gear" id="statsBtn" title="Продажі">📊</button><button type="button" class="gear" id="listBtn" title="Відправлення">📋</button><button type="button" class="gear" id="gearBtn" title="Налаштування">⚙</button></div></div>
+  <div class="top"><h1>📦 Нова накладна</h1><div><button type="button" class="gear" id="preBtn" title="Клієнти чекають (передзамовлення, запити)">📝</button><button type="button" class="gear" id="statsBtn" title="Продажі">📊</button><button type="button" class="gear" id="listBtn" title="Відправлення">📋</button><button type="button" class="gear" id="gearBtn" title="Налаштування">⚙</button></div></div>
 
   <div class="card" id="setupCard" style="display:none">
     <h2>Налаштування (один раз)</h2>
@@ -97,6 +99,9 @@
 
   <div id="mainUi">
 
+  <div class="moreBar preBar" id="preBar"><b>📝 Із передзамовлення</b> <span id="preInfo"></span><br>
+    Відскануйте накладну й натисніть «Додати» — передзамовлення закриється саме.<br>
+    <button type="button" id="preCancel">Не з передзамовлення</button></div>
   <div class="moreBar" id="moreBar"><b>➕ Ще товар до накладної <span id="moreTtn"></span></b><br>
     SMS клієнту вдруге не піде. Впишіть товар і натисніть «Додати товар».<br>
     <button type="button" id="moreCancel">Скасувати — нова накладна</button></div>
@@ -207,7 +212,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 13.11-K</div>
+  <div class="ver">Сканер DetalUA · версія 15.11-P</div>
 </div>
 
 <script>
@@ -545,6 +550,7 @@
       btn.disabled = false;
       show(pu ? '✅ ' + (res || 'Самовивіз записано') : (wasMore ? '✅ Товар додано до ' : '✅ Додано: ') + ttn + ' → ' + phone + '\n' + (res || ''), 'ok');
       lastSent = { ttn: ttn, phone: phone, carrier: carrier };
+      setPre('');
       $('moreBtn').style.display = 'block';
       setMore(null);
       addHist(ttn, carrier, phone, item);
@@ -631,6 +637,34 @@
     if (info.ttn.length >= 8 || /^SV\d/.test(info.ttn)) setMore(info);
   })();
 
+  // ---------- Із передзамовлення (кнопка «📦 Відправити» / «🏬 Самовивіз» на сторінці 📝) ----------
+  var preId = '';
+  function setPre(id, info) {
+    preId = id || '';
+    $('preBar').style.display = preId ? 'block' : 'none';
+    if (preId) $('preInfo').textContent = info || '';
+  }
+  $('preCancel').addEventListener('click', function () { setPre(''); });
+  function prefillPre() {
+    var q = new URLSearchParams(location.search);
+    if (!q.get('pre')) return;
+    history.replaceState(null, '', location.pathname + location.hash);
+    clearForm(); setMore(null);
+    if (q.get('c')) {
+      [].forEach.call($('carriers').children, function (x) { x.classList.toggle('on', x.dataset.v === q.get('c')); });
+      if ([].some.call($('carriers').children, function (x) { return x.dataset.v === q.get('c'); })) carrier = q.get('c');
+    }
+    applyCarrierUI();
+    $('phone').value = q.get('ph') || '';
+    $('itemName').value = q.get('nm') || ''; $('partCode').value = q.get('pc') || ''; $('carCode').value = q.get('car') || '';
+    $('qty').value = q.get('q') || '1'; $('price').value = q.get('pr') || '';
+    if (SIDE_NAMES.hasOwnProperty(q.get('sd') || '')) setSide(q.get('sd') || '');
+    updSum();
+    var pn = parseInt(q.get('pn'), 10) || 0;
+    setPre(q.get('pre'), (q.get('nm') || '') + (pn ? ' + ще ' + pn + ' ' + (pn === 1 ? 'товар додасться' : 'товари додадуться') + ' автоматично' : ''));
+    show(isPickup() ? 'Перевірте товар і натисніть «Записати продаж».' : 'Відскануйте або впишіть номер накладної.', 'info');
+  }
+
   // Якщо фоновий запит заблоковано (так буває в Safari на iPhone) — відкриваємо сторінку Google напряму:
   // звичайний перехід Safari не блокує. Google покаже результат, звідти — назад до сканера.
   function goViaPage(body) {
@@ -684,6 +718,7 @@
   async function addWithConfirm(phone, ttn, carrier, item, extra) {
     var body = { action: extra ? 'additem' : 'add', phone: phone, ttn: ttn, carrier: carrier, name: item.name, part: item.part, car: item.car, side: item.side, qty: item.qty, price: item.price,
       pay: item.pay || '', prepay: item.prepay === '' || item.prepay == null ? '' : item.prepay };
+    if (preId && !extra) body.pre = preId;
     try {
       return await api(Object.assign({}, body));
     } catch (e) {
@@ -766,6 +801,7 @@
   }
   $('listBtn').addEventListener('click', function () { openGooglePage('list'); });
   $('statsBtn').addEventListener('click', function () { openGooglePage('stats'); });
+  $('preBtn').addEventListener('click', function () { openGooglePage('pre'); });
 
   $('gearBtn').addEventListener('click', function () {
     if ($('setupCard').style.display === 'block' && getCfg().url) closeSetup(); else openSetup();
@@ -786,6 +822,7 @@
   });
 
   if (!getCfg().url || !getCfg().key) openSetup();
+  prefillPre();
 </script>
 </body>
 </html>
