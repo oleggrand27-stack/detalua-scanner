@@ -95,6 +95,12 @@
     </div>
     <button type="button" class="btn send" id="cfgSave">Зберегти і перевірити зв'язок</button>
     <div class="msg" id="setupMsg"></div>
+    <div id="shareBox" style="margin-top:16px;border-top:1px solid #eee;padding-top:14px">
+      <h2 style="margin-top:0">📲 Встановити на інший телефон</h2>
+      <div class="hint" style="font-size:14px;color:#555;line-height:1.45">Надішліть це посилання собі на інший телефон (Telegram «Збережене», Viber, AirDrop). Там відкрийте його в Safari — налаштування підхопляться самі. Потім «Поділитися» → «На початковий екран».<br><b>Нікому стороннім не пересилайте</b> — у посиланні ключ доступу до таблиці.</div>
+      <button type="button" class="btn" id="shareBtn" style="margin-top:10px">📤 Надіслати посилання</button>
+      <button type="button" class="btn" id="copyBtn" style="margin-top:8px">📋 Скопіювати посилання</button>
+    </div>
   </div>
 
   <div id="mainUi">
@@ -212,7 +218,7 @@
   </div>
   </div>
   <div id="reader"></div>
-  <div class="ver">Сканер DetalUA · версія 15.11-P</div>
+  <div class="ver">Сканер DetalUA · версія 19.11-S</div>
 </div>
 
 <script>
@@ -819,6 +825,25 @@
         if (e.network) { closeSetup(); goViaPage({ action: 'ping' }); return; }
         show('❌ ' + e.message, 'err');
       });
+  });
+
+  function shareLink() {
+    var cfg = getCfg();
+    return location.origin + location.pathname + '#u=' + encodeURIComponent(cfg.url) + '&k=' + encodeURIComponent(cfg.key);
+  }
+  $('shareBtn').addEventListener('click', function () {
+    var cfg = getCfg();
+    if (!cfg.url || !cfg.key) { show('Спочатку збережіть налаштування на цьому телефоні.', 'err'); return; }
+    if (navigator.share) navigator.share({ title: 'DetalUA сканер', url: shareLink() }).catch(function () {});
+    else $('copyBtn').click();
+  });
+  $('copyBtn').addEventListener('click', function () {
+    var cfg = getCfg();
+    if (!cfg.url || !cfg.key) { show('Спочатку збережіть налаштування на цьому телефоні.', 'err'); return; }
+    var link = shareLink(), b = this;
+    function ok() { b.textContent = '✅ Скопійовано'; setTimeout(function () { b.textContent = '📋 Скопіювати посилання'; }, 2500); }
+    if (navigator.clipboard) navigator.clipboard.writeText(link).then(ok, function () { prompt('Скопіюйте посилання:', link); });
+    else prompt('Скопіюйте посилання:', link);
   });
 
   if (!getCfg().url || !getCfg().key) openSetup();
